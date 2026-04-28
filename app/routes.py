@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
+from typing import List, Optional
 from anthropic import Anthropic
 import os
 from dotenv import load_dotenv
@@ -15,32 +16,47 @@ class IsletmeProfil(BaseModel):
     sehir: str
     hedef: str
 
-@router.post("/icerik-uret")
-def icerik_uret(profil: IsletmeProfil):
-    mesaj = client.messages.create(
-        model="claude-sonnet-4-20250514",
+class Mesaj(BaseModel):
+    rol: str
+    icerik: str
+
+class SohbetIstegi(BaseModel):
+    mesaj: str
+    profil: IsletmeProfil
+    gecmis: Optional[List[Mesaj]] = []
+
+@router.post("/sohbet")
+def sohbet(istek: SohbetIstegi):
+    sistem_promptu = f"""Sen via.ai'nin yapay zeka sosyal medya asistanısın.
+
+Kullanıcının işletme bilgileri:
+- İşletme adı: {istek.profil.isletme_adi}
+- Sektör: {istek.profil.sektor}
+- Şehir: {istek.profil.sehir}
+- Hedef: {istek.profil.hedef}
+
+Görevin:
+- Bu işletmeye özel sosyal medya içerikleri üret
+- Instagram, TikTok, Facebook için içerik planları yap
+- Caption, hashtag, reels fikirleri, kampanya metinleri oluştur
+- İşletmenin sektörüne ve hedefine göre strateji öner
+- Türkçe yanıt ver
+- Kısa, net ve uygulanabilir öneriler sun
+- Emoji kullan, samimi ol
+- Asla işletme bilgileri dışında konulara girme"""
+
+    mesajlar = []
+    for m in istek.gecmis:
+        rol = "user" if m.rol == "kullanici" else "assistant"
+        mesajlar.append({"role": rol, "content": m.icerik})
+    
+    mesajlar.append({"role": "user", "content": istek.mesaj})
+
+    yanit = client.messages.create(
+        model="claude-haiku-4-5-20251001",
         max_tokens=1000,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""
-Sen küçük işletmeler için sosyal medya uzmanısın.
-
-İşletme bilgileri:
-- Ad: {profil.isletme_adi}
-- Sektör: {profil.sektor}
-- Şehir: {profil.sehir}
-- Hedef: {profil.hedef}
-
-Bu işletme için bu hafta 7 günlük sosyal medya içerik planı oluştur.
-Her gün için:
-1. İçerik fikri
-2. Caption (Türkçe)
-3. 5 hashtag
-
-Sade ve uygulanabilir olsun.
-"""
-            }
-        ]
+        system=sistem_promptu,
+        messages=mesajlar
     )
-    return {"plan": mesaj.content[0].text}
+
+    return {"cevap": yanit.content[0].text}
